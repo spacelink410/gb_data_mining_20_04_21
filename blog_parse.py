@@ -112,15 +112,6 @@ class GbBlogParse:
             else ""
         )
 
-        # Количество комментариев
-        # comments_count = (
-        #     soup.find("comments")["total-comments-count"] if soup.find("comments") else 0
-        # )
-
-        # Парсинг комментариев сделан через webdriver.Chrome(), что очень замедляет работу.
-        # Поэтому лучше не открывать его лишний раз
-        # comments = self.parse_comments_driver(url) if comments_count else None
-
         data = {
             "post_data": {
                 "url": url,
@@ -145,118 +136,6 @@ class GbBlogParse:
         data = response.json()
         return data
 
-    def parse_comments_driver(self, url):
-        """
-        Будем парсить комментарии через отдельное подключение через webdriver.
-        T.к. комментарии подгружаются по скрипту,
-        то в response для request эти комментарии не попадают. Чтобы скрипты прогрузились,
-        будем открывать статью в браузере и брать ее исходный код, а затем уже
-        обрабатиывать через BeautifulSoup.
-        """
-
-        #  выходной список комментариев
-        comments_list_out = []
-
-        # Опции для хрома
-        chrome_options = webdriver.ChromeOptions()
-        # свойство, чтобы не грузились картинки для ускорения загрузки
-        properties = {"profile.managed_default_content_settings.images": 2}
-        # Установим свойства
-        chrome_options.add_experimental_option("prefs", properties)
-        # Опция, чтобы браузер открывался в фоне
-        chrome_options.add_argument("--headless")
-        # откроем браузер с опциями
-        browser = webdriver.Chrome(options=chrome_options)
-        # Перейдем по нужной ссылке
-        browser.get(url)
-        # Получим исходный код страницы
-        source_data = browser.page_source
-        # Закроем браузер, иначе система забьется открытыми окнами
-        browser.close()
-
-        soup = bs4.BeautifulSoup(source_data, "lxml")
-
-        # Найдем все комментарии на странице
-        comments_list = soup.find_all("div", attrs={"class": "gb__comment-item-body"})
-
-        # Создадим переменную для списка всех комментариев и заполним данные
-        comment_id_list = []
-        for itm in comments_list:
-            comment_id_list.append(itm["data-comment-id"])
-
-        """Далее идет сама обработка комментария
-        На базе словаря family хотел собрать древовидную структуру, но не реализовал.
-        При жедании можно из словаря построить дерево и записать комментарии во вложенной структуре
-        В текущей реализации пошел немного проще, т.к. не хватило времени, но для каждого комментаря
-        записал его родителя, т.к. из этих данных так же можно построить иерархию."""
-
-        family = {}
-        # пройдем по найденному списку и соберем данные по комментариям
-        for itm in comment_id_list:
-            # Надем тэг, где фигурирует id комментария
-            tag = soup.find("div", attrs={"data-comment-id": itm})
-            # Найдем первого родителя с тэгом li
-            parent_tag = tag.find_parent("li")
-            # Если родитель найден, то возьмем идентификатор родителя. Он будет в формате comment-xxxxxx
-            parent_id = (
-                parent_tag.find_parent("li", attrs={"class": "gb__comment-item"})["id"]
-                if parent_tag.find_parent("li", attrs={"class": "gb__comment-item"})
-                else None
-            )
-
-            # Преобразуем найденный идентификатор к нормальному виду или запишем, что его нет
-            if parent_id:
-                parent_id = parent_id.split(sep="-")[1]
-                family.update({itm: parent_id})
-            else:
-                family.update({itm: None})
-
-            # Заполним идентификатор комментария
-            comment_id = itm
-            # Заполним идентификатор родителя
-            comment_parent_id = parent_id
-            # Найдем и заполним текст комментария
-            comment_text = (
-                soup.find("div", attrs={"data-comment-id": itm}).find_next("p").text.strip()
-            )
-            # Найдем и заполним дату комментария
-            comment_date = (
-                soup.find("div", attrs={"data-comment-id": itm})
-                .find_previous("span", attrs={"class": "comment-date"})
-                .text
-            )
-            # Найдем и заполним автора комментария
-            comment_author = soup.find("div", attrs={"data-comment-id": itm}).find_previous(
-                "a", attrs={"class": "gb__comment-item-header-user-data-name"}
-            )["creator"]
-
-            # Найдем, сформируем и заполним сылку на автора комментария
-            comment_author_link = (
-                urljoin(
-                    self.base_url,
-                    soup.find("div", attrs={"data-comment-id": itm}).find_previous(
-                        "a", attrs={"class": "gb__comment-item-header-user-data-name"}
-                    )["ng-href"],
-                )
-                if soup.find("div", attrs={"data-comment-id": itm}).find_previous(
-                    "a", attrs={"class": "gb__comment-item-header-user-data-name"}
-                )
-                else ""
-            )
-
-            # Сформируем структуру комментария и сложим все в список
-            comment: dict = {
-                "comment_id": comment_id,
-                "comment_parent_id": comment_parent_id,
-                "comment_text": comment_text,
-                "comment_date": comment_date,
-                "comment_author": comment_author,
-                "comment_author_link": comment_author_link,
-            }
-            comments_list_out.append(comment)
-
-        return comments_list_out
-
     def run(self):
         for task in self.tasks:
             task_result = task()
@@ -268,7 +147,6 @@ class GbBlogParse:
 
 
 if __name__ == "__main__":
-    # collection = MongoClient()["gb_parse_20_04"]["gb_blog"]
     db = Database("sqlite:///gb_blog.db")
     parser = GbBlogParse("https://gb.ru", "https://gb.ru/posts", db)
     parser.run()
