@@ -121,8 +121,7 @@ class AvitoTooManyRequestsRetryMiddleware(RetryMiddleware):
         if request.meta.get('dont_retry', False):
             return response
         elif response.status == 429:
-            print(429)
-            print(response["Retry-After"])
+            print(f"To many requests - {response.status}")
             self.crawler.engine.pause()
             # блокировка ip у авито длится час. Здесь лучше использовать
             # наборы прокси а не прерывать процесс crawler, либо задержку в 2 секунды между
